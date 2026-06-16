@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>영수증 자동 파일명 변환기</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;
+      background: #f5f6fa;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 2rem;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+      padding: 2.5rem;
+      width: 100%;
+      max-width: 600px;
+      margin: auto;
+    }
+
+    .card-title { font-size: 1.25rem; font-weight: 700; color: #1a1a2e; margin-bottom: 0.4rem; }
+    .card-desc  { font-size: 0.85rem; color: #9a9aaa; margin-bottom: 1.6rem; }
+
+    /* ── 업로드 존 ── */
+    .upload-zone {
+      border: 2px dashed #c8ccd8;
+      border-radius: 12px;
+      padding: 1.8rem 1.5rem;
+      text-align: center;
+      cursor: pointer;
+      position: relative;
+      background: #fafbff;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .upload-zone:hover, .upload-zone.dragover { border-color: #4a6cf7; background: #f0f3ff; }
+    .upload-zone input[type="file"] {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+    }
+    .upload-icon { font-size: 2.2rem; margin-bottom: 0.5rem; }
+    .upload-text { font-size: 0.88rem; font-weight: 500; color: #3a3a4a; margin-bottom: 0.2rem; }
+    .upload-hint { font-size: 0.73rem; color: #b0b4c4; }
+    .upload-hint span { color: #4a6cf7; font-weight: 500; }
+
+    /* ── 파일 카운트 바 ── */
+    .count-bar {
+      display: none; margin-top: 1rem;
+      padding: 0.6rem 1rem;
+      background: #f0f3ff; border: 1px solid #d0d8ff; border-radius: 8px;
+      align-items: center; justify-content: space-between;
+    }
+    .count-bar.show { display: flex; }
+    .count-text { font-size: 0.82rem; font-weight: 500; color: #4a6cf7; }
+    .btn-reset {
+      font-size: 0.75rem; color: #9a9aaa;
+      background: none; border: none; cursor: pointer;
+      font-family: inherit; padding: 0.2rem 0.5rem;
+      border-radius: 4px; transition: background 0.2s;
+    }
+    .btn-reset:hover { background: #e0e6ff; color: #4a6cf7; }
+
+    /* ── 결과 목록 ── */
+    .result-list { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 1.2rem; }
+
+    /* ── 결과 카드 ── */
+    .result-card {
+      border: 1px solid #e8eaf0; border-radius: 12px;
+      padding: 0.9rem; background: #fff;
+      display: flex; gap: 0.8rem;
+    }
+    .card-thumb {
+      width: 72px; height: 72px; min-width: 72px;
+      object-fit: cover; border-radius: 8px;
+      border: 1px solid #e8eaf0; background: #f5f5fb;
+      align-self: flex-start;
+    }
+    .card-body { flex: 1; min-width: 0; }
+    .card-header {
+      display: flex; align-items: center; gap: 0.4rem;
+      margin-bottom: 0.35rem;
+    }
+    .card-num {
+      font-size: 0.68rem; font-weight: 700; color: #fff;
+      background: #4a6cf7; border-radius: 4px;
+      padding: 0.08rem 0.4rem; flex-shrink: 0; line-height: 1.5;
+    }
+    .card-origname {
+      font-size: 0.73rem; color: #888;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      margin-bottom: 0.35rem;
+    }
+
+    .fname-input {
+      width: 100%; padding: 0.4rem 0.6rem; margin-bottom: 0.4rem;
+      font-size: 0.79rem; font-family: 'Noto Sans KR', monospace, sans-serif;
+      font-weight: 600; color: #1a1a2e;
+      background: #f5f6ff; border: 1.5px solid #c8d0ff; border-radius: 6px;
+      outline: none; transition: border-color 0.2s;
+    }
+    .fname-input:focus { border-color: #4a6cf7; background: #fff; }
+
+    .mini-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 0.38rem; margin-bottom: 0.45rem;
+    }
+    .mini-group label { display: block; font-size: 0.63rem; color: #aaa; margin-bottom: 0.12rem; }
+    .mini-input, .mini-select {
+      width: 100%; padding: 0.32rem 0.48rem;
+      font-size: 0.77rem; font-family: 'Noto Sans KR', sans-serif;
+      color: #1a1a2e; background: #fff;
+      border: 1.5px solid #e0e4f0; border-radius: 6px;
+      outline: none; transition: border-color 0.2s;
+    }
+    .mini-input:focus, .mini-select:focus { border-color: #4a6cf7; }
+
+    .btn-dl-sm {
+      width: 100%; padding: 0.4rem;
+      font-size: 0.77rem; color: white; font-weight: 500;
+      background: #4a6cf7; border: none; border-radius: 6px;
+      cursor: pointer; font-family: inherit; transition: background 0.2s;
+    }
+    .btn-dl-sm:hover { background: #3a5ce5; }
+
+    /* ── ZIP 영역 ── */
+    .zip-area {
+      display: none; margin-top: 1.2rem; padding: 1.1rem;
+      background: #f0fff8; border: 1px solid #b0e0c8; border-radius: 12px; text-align: center;
+    }
+    .zip-area.show { display: block; }
+    .zip-summary { font-size: 0.82rem; color: #3a9a6a; margin-bottom: 0.75rem; font-weight: 500; }
+    .btn-zip {
+      padding: 0.78rem 2.2rem;
+      background: #4aaf7a; color: white;
+      font-family: 'Noto Sans KR', sans-serif; font-size: 0.9rem; font-weight: 500;
+      border: none; border-radius: 10px; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 0.5rem;
+      transition: background 0.2s, transform 0.15s;
+    }
+    .btn-zip:hover:not(:disabled) { background: #3a9a6a; transform: translateY(-1px); }
+    .btn-zip:disabled { background: #a8d8b8; cursor: not-allowed; transform: none; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <p class="card-title">영수증 파일명 변환기</p>
+  <p class="card-desc">영수증 사진을 올리고, 정보를 직접 입력하면 파일명을 자동 생성합니다</p>
+
+  <!-- 업로드 존 -->
+  <div class="upload-zone" id="uploadZone">
+    <input type="file" id="fileInput" accept="image/*" multiple />
+    <div class="upload-icon">🧾</div>
+    <p class="upload-text">이미지를 드래그하거나 클릭 (최대 10장 동시 선택)</p>
+    <p class="upload-hint">지원 형식: <span>JPG, PNG, WEBP</span></p>
+  </div>
+
+  <!-- 파일 카운트 바 -->
+  <div class="count-bar" id="countBar">
+    <span class="count-text" id="countText"></span>
+    <button class="btn-reset" id="btnReset">✕ 초기화</button>
+  </div>
+
+  <!-- 결과 카드 목록 -->
+  <div class="result-list" id="resultList"></div>
+
+  <!-- 전체 ZIP 다운로드 -->
+  <div class="zip-area" id="zipArea">
+    <p class="zip-summary" id="zipSummary"></p>
+    <button class="btn-zip" id="btnZip">📦 전체 ZIP 다운로드</button>
+  </div>
+</div>
+
+<script>
+const MAX_FILES  = 10;
+const CATEGORIES = ['카페','식당','마트','주유소','교통수단','기타'];
+
+const uploadZone = document.getElementById('uploadZone');
+const fileInput  = document.getElementById('fileInput');
+const countBar   = document.getElementById('countBar');
+const countText  = document.getElementById('countText');
+const btnReset   = document.getElementById('btnReset');
+const resultList = document.getElementById('resultList');
+const zipArea    = document.getElementById('zipArea');
+const zipSummary = document.getElementById('zipSummary');
+const btnZip     = document.getElementById('btnZip');
+
+let results = [];
+
+// ── 유틸 ──────────────────────────────────────────────────────
+const pad = n => String(n).padStart(2,'0');
+function todayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`;
+}
+function sanitize(str) {
+  return String(str||'').replace(/[\\/:*?"<>|\n\r]/g,'').trim();
+}
+function fileExt(file) {
+  return (file.name.split('.').pop()||'jpg').toLowerCase();
+}
+function esc(str) {
+  return String(str||'')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function buildFilename(r) {
+  const date  = sanitize(r.date)  || todayStr();
+  const store = sanitize(r.store) || '영수증';
+  const amt   = String(r.amount||'0').replace(/\D/g,'') || '0';
+  return `${date}_${store}_${r.category}_${amt}원.${fileExt(r.file)}`;
+}
+
+// ── 카드 렌더링 ───────────────────────────────────────────────
+function catOptions(selected) {
+  return CATEGORIES.map(c =>
+    `<option value="${c}"${c===selected?' selected':''}>${c}</option>`
+  ).join('');
+}
+
+function renderCard(idx) {
+  const r    = results[idx];
+  const card = document.getElementById(`card-${idx}`);
+  if (!card) return;
+
+  card.innerHTML = `
+    <img class="card-thumb" src="${r.thumbUrl}" alt="썸네일" />
+    <div class="card-body">
+      <div class="card-header">
+        <span class="card-num">${idx+1}</span>
+      </div>
+      <p class="card-origname">${esc(r.file.name)}</p>
+      <input class="fname-input" type="text" value="${esc(r.filename)}" title="파일명 직접 수정 가능" readonly />
+      <div class="mini-grid">
+        <div class="mini-group">
+          <label>날짜</label>
+          <input class="mini-input" data-f="date" type="text" value="${esc(r.date)}" maxlength="8" placeholder="20260614" />
+        </div>
+        <div class="mini-group">
+          <label>가게명</label>
+          <input class="mini-input" data-f="store" type="text" value="${esc(r.store)}" placeholder="스타벅스" />
+        </div>
+        <div class="mini-group">
+          <label>업종</label>
+          <select class="mini-select" data-f="category">${catOptions(r.category)}</select>
+        </div>
+        <div class="mini-group">
+          <label>금액</label>
+          <input class="mini-input" data-f="amount" type="text" value="${esc(r.amount)}" inputmode="numeric" placeholder="4500" />
+        </div>
+      </div>
+      <button class="btn-dl-sm">⬇ 다운로드</button>
+    </div>`;
+
+  const fnameEl = card.querySelector('.fname-input');
+
+  card.querySelectorAll('[data-f]').forEach(el => {
+    const refresh = () => {
+      r.date     = card.querySelector('[data-f="date"]').value;
+      r.store    = card.querySelector('[data-f="store"]').value;
+      r.category = card.querySelector('[data-f="category"]').value;
+      r.amount   = card.querySelector('[data-f="amount"]').value.replace(/\D/g,'');
+      r.filename = buildFilename(r);
+      fnameEl.value = r.filename;
+    };
+    el.addEventListener('input',  refresh);
+    el.addEventListener('change', refresh);
+  });
+
+  card.querySelector('.btn-dl-sm').addEventListener('click', () => {
+    const blobUrl = URL.createObjectURL(r.file);
+    const a = document.createElement('a');
+    a.href = blobUrl; a.download = r.filename; a.click();
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+  });
+}
+
+// ── 파일 선택 처리 ───────────────────────────────────────────
+function handleFiles(fileList) {
+  const images = Array.from(fileList).filter(f => f.type.startsWith('image/'));
+  if (!images.length) return;
+
+  if (images.length > MAX_FILES) {
+    alert(`최대 ${MAX_FILES}장까지 가능합니다. 처음 ${MAX_FILES}장만 선택됩니다.`);
+    images.splice(MAX_FILES);
+  }
+
+  results.forEach(r => URL.revokeObjectURL(r.thumbUrl));
+  results = images.map(file => ({
+    file,
+    thumbUrl: URL.createObjectURL(file),
+    date: todayStr(),
+    store: '',
+    category: '기타',
+    amount: '0',
+    get filename() { return buildFilename(this); },
+  }));
+
+  // getter 대신 초기 filename 고정값으로 교체
+  results = results.map(r => ({
+    ...r,
+    filename: buildFilename(r),
+  }));
+
+  resultList.innerHTML = '';
+  zipArea.classList.remove('show');
+
+  results.forEach((_, idx) => {
+    const div = document.createElement('div');
+    div.id = `card-${idx}`;
+    div.className = 'result-card';
+    resultList.appendChild(div);
+    renderCard(idx);
+  });
+
+  countText.textContent = `${results.length}장 선택됨`;
+  countBar.classList.add('show');
+  zipSummary.textContent = `총 ${results.length}장`;
+  zipArea.classList.add('show');
+}
+
+fileInput.addEventListener('change', () => { if (fileInput.files.length) handleFiles(fileInput.files); });
+uploadZone.addEventListener('dragover',  e => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault(); uploadZone.classList.remove('dragover');
+  if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+});
+
+btnReset.addEventListener('click', () => {
+  results.forEach(r => URL.revokeObjectURL(r.thumbUrl));
+  results = [];
+  fileInput.value = '';
+  resultList.innerHTML = '';
+  countBar.classList.remove('show');
+  zipArea.classList.remove('show');
+});
+
+// ── 전체 ZIP 다운로드 ────────────────────────────────────────
+btnZip.addEventListener('click', async () => {
+  btnZip.disabled = true;
+  btnZip.textContent = '압축 중...';
+
+  try {
+    const zip = new JSZip();
+    const nameCount = {};
+
+    for (const r of results) {
+      let fname = r.filename;
+      if (nameCount[fname]) {
+        const dot = fname.lastIndexOf('.');
+        fname = `${fname.slice(0,dot)}_${nameCount[fname]}${fname.slice(dot)}`;
+      }
+      nameCount[r.filename] = (nameCount[r.filename] || 1) + 1;
+      zip.file(fname, r.file);
+    }
+
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = `영수증_${todayStr()}.zip`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (err) {
+    alert('ZIP 생성 실패: ' + err.message);
+  }
+
+  btnZip.disabled = false;
+  btnZip.textContent = '📦 전체 ZIP 다운로드';
+});
+</script>
+</body>
+</html>
